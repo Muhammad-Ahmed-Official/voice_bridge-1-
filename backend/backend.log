@@ -1,0 +1,218 @@
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+MongoDB Connected at: cluster0-shard-00-01.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already i[socket] connected: m4JJfLHqrRUtSVCHAAAC
+[socket] connected: 0k--8RgCKIvqNHUVAAAD
+[socket] registered: test_user_1 (no _id) → m4JJfLHqrRUtSVCHAAAC
+[socket] registered: test_user_2 (no _id) → 0k--8RgCKIvqNHUVAAAD
+[Call] pending: test_user_1 → test_user_2 | speak=EN hear=UR
+
+╔════════════════════════════════════════════════════════════════════════╗
+║                         CALL STARTED - ROOM CONFIG                      ║
+╠════════════════════════════════════════════════════════════════════════╣
+║  UserA: test_user_1     │ Speaks: EN   │ Hears: UR          ║
+║  UserB: test_user_2     │ Speaks: UR   │ Hears: EN          ║
+╠════════════════════════════════════════════════════════════════════════╣
+║  UserA speaks EN → STT(EN) → Translate(EN→EN) → TTS(EN) → UserB ║
+║  UserB speaks UR → STT(UR) → Translate(UR→UR) → TTS(UR) → UserA ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+[socket] room created: test_user_1_test_user_2_1775549625277
+[VoiceClone] Init started after room test_user_1_test_user_2_1775549625277 — test_user_1: false | test_user_2: false
+file:///C:/Users/user/Documents/Voice_Bridge/backend/src/socket/index.js:126
+  if (speakLang !== hearLang) {
+                    ^
+
+ReferenceError: hearLang is not defined
+    at resolveAudioStrategy (file:///C:/Users/user/Documents/Voice_Bridge/backend/src/socket/index.js:126:21)
+    at Socket.<anonymous> (file:///C:/Users/user/Documents/Voice_Bridge/backend/src/socket/index.js:608:9)
+    at Socket.emit (node:events:508:28)
+    at Socket.emitUntyped (C:\Users\user\Documents\Voice_Bridge\backend\node_modules\socket.io\dist\typed-events.js:69:22)
+    at C:\Users\user\Documents\Voice_Bridge\backend\node_modules\socket.io\dist\socket.js:697:39
+    at process.processTicksAndRejections (node:internal/process/task_queues:84:11)
+
+Node.js v24.11.1
+ at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at file:///C:/Users/user/Documents/Voice_Bridge/backend/src/index.js:16:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+
+Node.js v24.11.1
+[31m[nodemon] app crashed - waiting for file changes be[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+MongoDB Connected at: cluster0-shard-00-02.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+MongoDB Connected at: cluster0-shard-00-01.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at file:///C:/Users/user/Documents/Voice_Bridge/backend/src/index.js:16:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+
+Node.js v24.11.1
+[31m[nodemon] app crashed - waitin[32m[nodemon] restarting due to changes...[32m[[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+MongoDB Connected at: cluster0-shard-00-00.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address alr[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+MongoDB Connected at: cluster0-shard-00-00.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at file:///C:/Users/user/Documents/Voice_Bridge/backend/src/index.js:16:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+
+Nod[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] [32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/[dotenv@17.3.1][dotenv@17.3.1] injecting env (0) from .env -- tip: 🤖 agentic secret storage: httMongoDB Connected at:MongoDB Connected at: cluster0-shard-00-01.tvtr7.mongodb.🚀 Server is runninnode:events:486
+      thro[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+MongoDB Connected at: cluster0-shard-00-00.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at file:///C:/Users/user/Documents/Voice_Bridge/backend/src/index.js:16:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+
+Node.js v24.11.1
+[31m[nodemon] [32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚙️  ove[dotenv@17.3.1] injecting env (0) from .env -- tMongoDB Connected at: cluster0-shard-00-00.tvtr7.moMongoDB Connected at: cluster0-shard-00-00.tvtr7.mongodb.net db: voice-brid[socket] connected: gfDG28caNkt_vBA4AAAC
+[socket] connected: aKVQCjPJyMsqoEqXAAAD
+[socket] registered: test_user_1 (no _id) → gfDG28caNkt_vBA4AAAC
+[socket] registered: test_user_2 (no _id) → aKVQCjPJyMsqoEqXAAAD
+[Call] pending: test_user_1 → test_user_2 | speak=EN hear=UR
+
+╔════════════════════════════════════════════════════════════════════════╗
+║                         CALL STARTED - ROOM CONFIG                      ║
+╠════════════════════════════════════════════════════════════════════════╣
+║  [32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+MongoDB Connected at: cluster0-shard-00-00.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at file:///C:/Users/user/Documents/Voice_Bridge/backend/src/index.js:16:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+
+Node.js v24.11.1
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+is not defined
+    at resolveAudioStrategy (file:///C:/Users/user/Documents/Voice_Bridge/backend/src/socket/index.js:158:33)
+    at Socket.<anonymous> (file:///C:/Users/user/Documents/Voice_Bridge/backend/src/socket/index.js:608:9)
+    at Socket.emit (node:events:508:28)
+    at Socket.emitUntyped (C:\Users\user\Documents\Voice_Bridge\backend\node_modules\socket.io\dist\typed-events.js:69:22)
+    at C:\Users\user\Documents\Voice_Bridge\backend\node_modules\socket.io\dist\socket.js:697:39
+    at process.processTicksAndRejections (node:internal/process/task_queues:84:11)
+
+Node.js v24.11.1
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node -r dotenv/config --experimental-json-modules src/index.js`[39m
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+MongoDB Connected at: cluster0-shard-00-00.tvtr7.mongodb.net db: voice-bridge
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at file:///C:/Users/user/Documents/Voice_Bridge/backend/src/index.js:16:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+
+Node.js v24.11.1
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
