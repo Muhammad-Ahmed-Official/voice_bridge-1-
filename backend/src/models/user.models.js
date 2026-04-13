@@ -6,12 +6,10 @@ const userSchema = new mongoose.Schema(
     userId: {
       type: String,
       required: true,
-      unique: true,
     },
     password: {
       type: String,
       required: true,
-      unique: true,
     },
     // Global preference: when true, backend will try ElevenLabs TTS
     voiceCloningEnabled: {
