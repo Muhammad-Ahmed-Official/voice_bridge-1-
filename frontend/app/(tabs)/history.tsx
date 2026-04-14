@@ -17,14 +17,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { historyApi, HistoryItem } from '@/api/history';
 
 const THEME = {
-  bg: '#0a0a0f',
-  card: '#15151f',
-  accent: '#00d4ff',
-  success: '#22c55e',
-  danger: '#ef4444',
-  warning: '#f59e0b',
-  text: '#ffffff',
-  textMuted: '#9ca3af',
+  bg: '#FAF7F2',
+  card: '#FFFFFF',
+  accent: '#C17B3A',
+  success: '#10B981',
+  danger: '#C25B4E',
+  warning: '#D4963A',
+  text: '#2C2018',
+  textMuted: '#9C8E80',
+  border: '#EDE5D8',
+  secondary: '#7C6C5B',
 };
 
 const LANG_LABELS: Record<string, string> = {
@@ -255,7 +257,7 @@ export default function HistoryScreen() {
 
   if (!user) {
     return (
-      <LinearGradient colors={['#0a0a0f', '#1a1a2e']} style={styles.container}>
+      <LinearGradient colors={['#FAF7F2', '#F0E8DC']} style={styles.container}>
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Please login to view history</Text>
         </View>
@@ -263,9 +265,8 @@ export default function HistoryScreen() {
     );
   }
 
-
   return (
-    <LinearGradient colors={['#0a0a0f', '#1a1a2e']} style={styles.container}>
+    <LinearGradient colors={['#FAF7F2', '#F0E8DC']} style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Call History</Text>
       </View>
@@ -309,6 +310,8 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDE5D8',
   },
   title: {
     fontSize: 28,
@@ -317,13 +320,21 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 100,
   },
   card: {
     backgroundColor: THEME.card,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    shadowColor: '#C17B3A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -333,7 +344,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(0, 212, 255, 0.1)',
+    backgroundColor: 'rgba(193, 123, 58, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -355,10 +366,10 @@ const styles = StyleSheet.create({
     padding: 8,
     marginRight: 4,
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 212, 255, 0.1)',
+    backgroundColor: 'rgba(193, 123, 58, 0.1)',
   },
   playBtnActive: {
-    backgroundColor: 'rgba(0, 212, 255, 0.25)',
+    backgroundColor: 'rgba(193, 123, 58, 0.25)',
   },
   deleteBtn: {
     padding: 8,
@@ -369,7 +380,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+    borderTopColor: THEME.border,
   },
   footerItem: {
     flexDirection: 'row',
@@ -386,6 +397,7 @@ const styles = StyleSheet.create({
     color: THEME.accent,
     marginLeft: 16,
     flex: 1,
+    fontWeight: '600',
   },
   dateText: {
     fontSize: 12,
@@ -401,6 +413,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: THEME.text,
     marginTop: 16,
+    fontWeight: '600',
   },
   emptySubtext: {
     fontSize: 14,
