@@ -189,13 +189,12 @@ export const forgotPassword = async (req, res) => {
     if (typeof email !== "string" || !email.trim()) {
       return res.status(400).json({ status: false, message: "email is required" });
     }
-    const normalizedEmail = email.trim().toLowerCase();
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ status: false, message: "User not found" });
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const emailResponse = await sendEmailOTP(normalizedEmail, otp);
+    const emailResponse = await sendEmailOTP(email, otp);
     if (!emailResponse) {
       return res.status(500).json({ status: false, message: "Failed to send email" });
     }
@@ -214,20 +213,17 @@ export const resetPassword = async (req, res) => {
     if (typeof email !== "string" || !email.trim() || typeof otp !== "string" || !otp.trim() || typeof newPassword !== "string" || !newPassword.trim()) {
       return res.status(400).json({ status: false, message: "email, otp and newPassword are required" });
     }
-    const normalizedEmail = email.trim().toLowerCase();
-    const normalizedOtp = otp.trim();
-    const normalizedNewPassword = newPassword.trim();
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ status: false, message: "User not found" });
     }
 
-    if (!user.otp || user.otp !== normalizedOtp) {
+    if (!user.otp || user.otp !== otp) {
       return res.status(400).json({ status: false, message: "Invalid OTP" });
     }
 
-    user.password = normalizedNewPassword;
+    user.password = newPassword;
     user.otp = undefined;
     await user.save({ validateBeforeSave: false });
 
@@ -246,21 +242,17 @@ export const changePassword = async (req, res) => {
     if (typeof userId !== "string" || !userId.trim() || typeof newPassword !== "string" || !newPassword.trim()) {
       return res.status(400).json({ status: false, message: "userId and newPassword are required" });
     }
-    const trimmedUserId = userId.trim();
-    const trimmedNewPassword = newPassword.trim();
-    if (trimmedNewPassword.length < 6) {
+  
+    if (newPassword.length < 6) {
       return res.status(400).json({ status: false, message: "Password must be at least 6 characters" });
     }
 
-    const hashedPassword = await bcrypt.hash(trimmedNewPassword, 10);
-    const updated = await User.findOneAndUpdate(
-      { userId: trimmedUserId },
-      { $set: { password: hashedPassword } },
-      { new: false },
-    );
-    if (!updated) {
+    const userDoc = await User.findOne({ userId });
+    if (!userDoc) {
       return res.status(404).json({ status: false, message: "User not found" });
     }
+    userDoc.password = newPassword;
+    await userDoc.save({ validateBeforeSave: false });
 
     return res.status(200).json({ status: true, message: "Password changed successfully" });
   } catch (error) {

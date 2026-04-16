@@ -1,0 +1,1556 @@
+import React, { useState, useEffect } from 'react';
+import {
+  StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView,
+  StatusBar, ActivityIndicator, Dimensions, Alert, Platform
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  Globe, User, Key, ChevronLeft, Settings, FileText,
+  Headphones, PhoneCall, Users, Check, Zap, Activity, MicOff,
+  Volume2, Play, LogOut, Bluetooth, BluetoothSearching, Mic, Cpu, VolumeX, Circle,
+  AlertCircle, CheckCircle, AlertTriangle, Zap as AlertZap, Crown
+} from 'lucide-react-native';
+import { useAuth } from '@/contexts/AuthContext';
+import { VoiceSetupScreen } from '@/components/VoiceSetupScreen';
+import { useSocket } from '@/hooks/useSocket';
+import { useSpeechRecognition, isWebSpeechSupported } from '@/hooks/useSpeechRecognition';
+import { useVADAudioRecorder } from '@/hooks/useVADAudioRecorder';
+import { useBluetooth } from '@/hooks/useBluetooth';
+import { useAudioPlayer } from '@/hooks/useAudioPlayer';
+import { historyApi } from '@/api/history';
+import { updatePreferences } from '@/api/user';
+import { useRouter } from 'expo-router';
+import { getConfidenceColor, ConfidenceColors } from '@/constants/theme';
+
+const { width } = Dimensions.get('window');
+
+const THEME = {
+  background: '#0F1219',
+  surface: '#1A1F2B',
+  border: '#2D3548',
+  primary: '#06B6D4',
+  secondary: '#6366F1',
+  success: '#10B981',
+  danger: '#F43F5E',
+  textMain: '#F8FAFC',
+  textMuted: '#94A3B8',
+};
+
+const LANGUAGES = [
+  { code: 'UR', label: 'Urdu', flag: '🇵🇰' },
+  { code: 'EN', label: 'English', flag: '🇺🇸' },
+  { code: 'AR', label: 'Arabic', flag: '🇸🇦' }
+];
+
+const LOCALE_MAP: Record<string, string> = {
+  UR: 'ur-PK',
+  EN: 'en-US',
+  AR: 'ar-SA',
+};
+
+// Speak translated text using browser's built-in Speech Synthesis (web fallback)
+function speakText(text: string, locale: string) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel(); // stop any ongoing speech
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = locale;
+  window.speechSynthesis.speak(utterance);
+}
+
+
+function showAlert(title: string, message: string, onOk?: () => void) {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+    onOk?.();
+  } else {
+    Alert.alert(title, message, onOk ? [{ text: 'OK', onPress: onOk }] : undefined);
+  }
+}
+
+// --- AUTH SCREEN ---
+const AuthScreen = ({
+  onSuccess,
+  onNewUser,
+}: {
+  onSuccess: () => void;
+  onNewUser?: (userId: string) => void;
+}) => {
+  const { signIn, signUp, isLoading } = useAuth();
+  const [isLogin, setIsLogin] = useState(true);
+  const [data, setData] = useState({ userId: '', password: '' });
+
+  const submit = async () => {
+    if (!data.userId.trim() || !data.password) {
+      showAlert('Error', 'User ID and Password required');
+      return;
+    }
+    const result = isLogin
+      ? await signIn(data.userId.trim(), data.password)
+      : await signUp(data.userId.trim(), data.password);
+    if (result.success) {
+      if (isLogin) {
+        onSuccess();
+      } else if (onNewUser) {
+        onNewUser(data.userId.trim());
+      } else {
+        showAlert('Success', 'Account created successfully.', () => setIsLogin(true));
+      }
+    } else {
+      showAlert('Error', result.message || 'Action failed');
+    }
+  };
+
+  return (
+    <View style={styles.darkPage}>
+      <LinearGradient colors={[THEME.background, '#07090D']} style={StyleSheet.absoluteFill} />
+      <SafeAreaView style={styles.authWrap}>
+        <View style={styles.logoBox}>
+          <LinearGradient colors={[THEME.primary, THEME.secondary]} style={styles.logoCircle}>
+            <Globe size={42} color="#fff" />
+          </LinearGradient>
+          <Text style={styles.brand}>Voice Bridge</Text>
+          <Text style={styles.tagline}>Breaking Barriers, Building Bridges</Text>
+        </View>
+        <View style={styles.authCard}>
+          <View style={styles.field}><User size={18} color={THEME.textMuted} /><TextInput placeholder="User ID" placeholderTextColor={THEME.textMuted} style={styles.fieldInput} value={data.userId} onChangeText={v => setData({ ...data, userId: v })} /></View>
+          <View style={styles.field}><Key size={18} color={THEME.textMuted} /><TextInput secureTextEntry placeholder="Password" placeholderTextColor={THEME.textMuted} style={styles.fieldInput} onChangeText={v => setData({ ...data, password: v })} /></View>
+          <TouchableOpacity style={styles.primaryBtn} onPress={submit} disabled={isLoading}>
+            <LinearGradient colors={[THEME.primary, THEME.secondary]} style={styles.primaryBtnInner}>
+              {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>{isLogin ? 'Sign In' : 'Sign Up'}</Text>}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity onPress={() => setIsLogin(!isLogin)} style={styles.switchBox}><Text style={styles.switchText}>{isLogin ? 'New user? Create account' : 'Already have an account? Sign in'}</Text></TouchableOpacity>
+      </SafeAreaView>
+    </View>
+  );
+};
+
+// --- HOME SCREEN ---
+const HomeScreen = ({ user, setScreen, router }: any) => (
+  <View style={styles.homePage}>
+    <LinearGradient colors={[THEME.surface, THEME.background]} style={styles.headerBg} />
+    <SafeAreaView>
+      <View style={styles.headerRow}>
+        <View><Text style={styles.headerLabel}>AUTHENTICATED AS</Text><Text style={styles.headerName}>{user?.name}</Text><Text style={styles.headerId}>ID: {user?.userId}</Text></View>
+        <TouchableOpacity onPress={() => setScreen('bt')} style={styles.btButton}><Bluetooth size={26} color={THEME.primary} /></TouchableOpacity>
+      </View>
+      <View style={styles.headerIcons}>
+        <TouchableOpacity style={styles.headerIconBox} onPress={() => router.push('/history')}><FileText size={18} color={THEME.primary} /><Text style={styles.headerIconLabel}>History</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.headerIconBox} onPress={() => setScreen('settings')}><Settings size={18} color={THEME.secondary} /><Text style={styles.headerIconLabel}>Settings</Text></TouchableOpacity>
+      </View>
+    </SafeAreaView>
+    <ScrollView contentContainerStyle={{ padding: 20 }}>
+      <TouchableOpacity style={styles.featureCard} onPress={() => setScreen('as-setup')}>
+        <View style={styles.featureIcon}><Headphones size={26} color={THEME.primary} /></View>
+        <Text style={styles.featureTitle}>Voice Assistant</Text>
+        <Text style={styles.featureDesc}>Real-time background translation for your conversations.</Text>
+      </TouchableOpacity>
+      <View style={styles.gridRow}>
+        <TouchableOpacity style={styles.gridCard} onPress={() => setScreen('dc-setup')}><View style={[styles.gridIcon, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}><PhoneCall size={24} color={THEME.success} /></View><Text style={styles.gridTitle}>Direct Call</Text><Text style={styles.gridDesc}>1-on-1 ID Search</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.gridCard} onPress={() => setScreen('mt-setup')}><View style={[styles.gridIcon, { backgroundColor: 'rgba(99, 102, 241, 0.1)' }]}><Users size={24} color={THEME.secondary} /></View><Text style={styles.gridTitle}>Meeting Table</Text><Text style={styles.gridDesc}>Group 3-5 Users</Text></TouchableOpacity>
+      </View>
+    </ScrollView>
+  </View>
+);
+
+export default function App() {
+  const { user, logout, isInitialized } = useAuth();
+  const router = useRouter();
+  const [screen, setScreen] = useState('home');
+  const [voiceSetupUserId, setVoiceSetupUserId] = useState<string | null>(null);
+  const [speakLang, setSpeakLang] = useState('UR');
+  // hearLang is always equal to speakLang — user hears in their own language
+  const hearLang = speakLang;
+
+  // Refs so translated-text handler always reads the latest values without stale closures
+  const isSpeakerRef = React.useRef(true);
+  const hearLangRef = React.useRef('UR');
+  const [participants, setParticipants] = useState(2);
+  const [isHost, setIsHost] = useState(false);
+  const [cloningEnabled, setCloningEnabled] = useState(
+    !!user?.voiceCloningEnabled,
+  );
+  // 'idle' | 'buffering' | 'cloning' | 'ready' | 'using-original'
+  const [cloneStatus, setCloneStatus] = useState<'idle' | 'buffering' | 'cloning' | 'ready' | 'using-original'>('idle');
+  const [participantIds, setParticipantIds] = useState('');
+  const [activeConfig, setActiveConfig] = useState<any>(null);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [callState, setCallState] = useState<'idle' | 'calling' | 'in-call'>('idle');
+
+  const [discoverableUsers, setDiscoverableUsers] = useState<{ userId: string; name: string }[]>([]);
+
+  const { socket } = useSocket(user?.userId ?? null, user?._id ?? null);
+  const { startListening, stopListening } = useSpeechRecognition();
+  const { startRecording, stopRecording, setTtsPlaying, warmUpAudio } = useVADAudioRecorder();
+  const { playAudio, stopAudio } = useAudioPlayer();
+  const { devices: btDevices, isScanning: btScanning, scanError: btScanError, startScan: btStartScan, stopScan: btStopScan, isBleSupported } = useBluetooth();
+
+  // Track which STT mode is being used: 'browser' | 'audio-recorder' | null
+  const [sttMode, setSttMode] = useState<'browser' | 'audio-recorder' | null>(null);
+
+  // Keep roomId in a ref so the audio-chunk callback always has the latest
+  // value without causing the STT effect to restart on every roomId change
+  const roomIdRef = React.useRef<string | null>(null);
+  roomIdRef.current = roomId;
+
+  // ── Meeting mode state + refs ─────────────────────────────────────────────
+  const [isMeetingMode, setIsMeetingMode] = useState(false);
+  const isMeetingModeRef = React.useRef(false);
+  isMeetingModeRef.current = isMeetingMode;
+
+  const [meetingId, setMeetingId] = useState<string | null>(null);
+  const meetingIdRef = React.useRef<string | null>(null);
+  meetingIdRef.current = meetingId;
+
+  const [incomingMeeting, setIncomingMeeting] = useState<{
+    meetingId: string;
+    hostUserId: string;
+    hostName: string;
+    totalParticipants: number;
+  } | null>(null);
+
+  const activeConfigRef = React.useRef<any>(null);
+  // Keep activeConfigRef in sync (set below after activeConfig declaration)
+
+  // Call start time for duration tracking
+  const [callStartTime, setCallStartTime] = useState<number | null>(null);
+  const callStartTimeRef = React.useRef<number | null>(null);
+  callStartTimeRef.current = callStartTime;
+
+  // Inline lang picker for the incoming call popup (hear = speak always)
+  const [callInviteSpeakLang, setCallInviteSpeakLang] = useState('UR');
+  const callInviteHearLang = callInviteSpeakLang; // always same
+
+  // Refs for values read inside socket event handlers.
+  const incomingCallRef = React.useRef<{ callerName: string; callerId: string } | null>(null);
+  const callInviteSpeakLangRef = React.useRef('UR');
+  const speakLangRef2 = React.useRef('UR');
+
+  // Inline lang picker for the meeting invite popup (hear = speak always)
+  const [meetingInviteSpeakLang, setMeetingInviteSpeakLang] = useState('UR');
+  const meetingInviteHearLang = meetingInviteSpeakLang; // always same
+
+  // Sync activeConfigRef so meeting-translated handler can read it without stale closure
+  activeConfigRef.current = activeConfig;
+
+  // --- NEW STATES FOR CALL FUNCTIONALITY ---
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeaker, setIsSpeaker] = useState(true);
+
+  // Keep refs in sync so socket handlers always have latest values
+  isSpeakerRef.current = isSpeaker;
+  hearLangRef.current = speakLang; // hear = speak
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [liveTranscript, setLiveTranscript] = useState<Record<number, string>>({});
+  const [confidenceScores, setConfidenceScores] = useState<Record<number, number>>({});
+  // State for Incoming Call Popup
+  const [incomingCall, setIncomingCall] = useState<{callerName: string, callerId: string} | null>(null);
+
+  // Sync call-handler refs every render so stale closures never read old values
+  incomingCallRef.current        = incomingCall;
+  callInviteSpeakLangRef.current = callInviteSpeakLang;
+  speakLangRef2.current          = speakLang;
+
+  useEffect(() => {
+    let interval: any;
+    if (screen.includes('active')) {
+      interval = setInterval(() => {
+        setRecordingSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingSeconds(0);
+      setLiveTranscript({});
+      setConfidenceScores({});
+      setIsMuted(false);
+      setIsSpeaker(true);
+      setCloneStatus('idle');
+    }
+    return () => clearInterval(interval);
+  }, [screen]);
+
+  // ── Socket event listeners ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!socket) return;
+
+    const onIncomingCall = ({ callerId, callerName }: { callerId: string; callerName: string }) => {
+      setIncomingCall({ callerId, callerName });
+      // Pre-populate popup pickers with current speak/hear prefs via refs
+      setCallInviteSpeakLang(speakLangRef2.current);
+      setCallInviteSpeakLang(speakLangRef2.current);
+      console.log(`[Call] incoming-call from ${callerId} (${callerName})`);
+    };
+
+    const onCallAccepted = ({
+      roomId: rid,
+      peerOdId,
+      peerUserId,
+      peerSpeakLang,
+      peerHearLang,
+    }: {
+      roomId: string;
+      peerOdId?: string;
+      peerUserId: string;
+      peerSpeakLang: string;
+      peerHearLang: string;
+    }) => {
+      setRoomId(rid);
+
+      // Read CURRENT values via refs — never stale regardless of when the event fires.
+      // incomingCallRef.current being set means we are the callee; use popup langs.
+      // Otherwise we are the caller; use the setup-screen langs.
+      const isCallee = !!incomingCallRef.current;
+      const mySpeakLang = isCallee ? callInviteSpeakLangRef.current : speakLangRef2.current;
+      const myHearLang  = mySpeakLang; // hear = speak always
+
+      console.log(
+        `[Call] call-accepted | role=${isCallee ? 'callee' : 'caller'} ` +
+        `me=${user?.userId}(${mySpeakLang}→${myHearLang}) ` +
+        `peer=${peerUserId}(${peerSpeakLang}→${peerHearLang}) roomId=${rid}`,
+      );
+
+      setActiveConfig([
+        { visitorId: user?._id, visitorUserId: user?.userId, userId: user?.userId, speak: mySpeakLang, hear: myHearLang },
+        { visitorId: peerOdId || null, visitorUserId: peerUserId, userId: peerUserId, speak: peerSpeakLang, hear: peerHearLang },
+      ]);
+      setCallStartTime(Date.now());
+      setCallState('in-call');
+      setScreen('active');
+      setIncomingCall(null);
+    };
+
+    const onCallDeclined = () => {
+      setCallState('idle');
+      showAlert('Call Declined', 'The user declined your call.');
+    };
+
+    const onCallEnded = ({ roomId: endedRoomId }: { roomId?: string } = {}) => {
+      // Stop recording and any in-flight TTS audio immediately
+      stopRecording();
+      stopListening();
+      stopAudio();
+
+      // History is saved by the user who initiates end-call, not here
+      setCallStartTime(null);
+      setRoomId(null);
+      setCallState('idle');
+      setCloneStatus('idle');
+      setScreen('home');
+    };
+    
+    const onTranslationError = ({ text, error }: { text: string; error: string }) => {
+      console.warn('[Translation] Error:', error, 'Text:', text);
+      // Show a brief notification but don't interrupt the call
+      // The text will be shown in the transcript area
+      setLiveTranscript(prev => ({ ...prev, 0: `[Translation failed] ${text}` }));
+    };
+
+    const onPeerDisconnected = () => {
+      stopAudio();
+      setCallStartTime(null);
+      setRoomId(null);
+      setCallState('idle');
+      setScreen('home');
+      showAlert('Call Ended', 'The other participant disconnected.');
+    };
+
+    const onCallError = ({ message }: { message: string }) => {
+      setCallState('idle');
+      showAlert('Call Error', message);
+    };
+
+    const onDiscoverableUsers = (users: { userId: string; name: string }[]) => {
+      setDiscoverableUsers(users);
+    };
+
+    // ── Meeting socket listeners ──────────────────────────────────────────────
+    const onMeetingCreated = ({ meetingId: mid, config }: { meetingId: string; config: any[] }) => {
+      setMeetingId(mid);
+      setRoomId(mid);
+      setActiveConfig(config.map(e => ({ userId: e.userId, speak: e.speak, hear: e.hear, status: e.status })));
+      setIsMeetingMode(true);
+      setIsHost(true);
+      setCallState('in-call');
+      setScreen('active');
+    };
+
+    const onIncomingMeetingInvite = (data: {
+      meetingId: string; hostUserId: string; hostName: string; totalParticipants: number;
+    }) => {
+      setIncomingMeeting(data);
+    };
+
+    const onMeetingJoinedAck = ({ meetingId: mid, config }: { meetingId: string; config: any[] }) => {
+      setMeetingId(mid);
+      setRoomId(mid);
+      setActiveConfig(config.map(e => ({ userId: e.userId, speak: e.speak, hear: e.hear, status: e.status })));
+      setIsMeetingMode(true);
+      setIsHost(false);
+      setCallState('in-call');
+      setScreen('active');
+      setIncomingMeeting(null);
+    };
+
+    const onMeetingParticipantJoined = ({ updatedConfig }: { meetingId: string; userId: string; speakLang: string; hearLang: string; updatedConfig: any[] }) => {
+      setActiveConfig(updatedConfig.map(e => ({ userId: e.userId, speak: e.speak, hear: e.hear, status: e.status })));
+      setLiveTranscript({});
+    };
+
+    const onMeetingParticipantDeclined = ({ userId }: { meetingId: string; userId: string }) => {
+      showAlert('Meeting Update', `${userId} declined the invitation.`);
+      setActiveConfig((prev: any) => prev ? prev.filter((p: any) => p.userId !== userId) : prev);
+    };
+
+    const onMeetingParticipantLeft = ({ userId }: { meetingId: string; userId: string }) => {
+      showAlert('Meeting Update', `${userId} has left the meeting.`);
+      setActiveConfig((prev: any) => prev ? prev.filter((p: any) => p.userId !== userId) : prev);
+    };
+
+    const onMeetingEnded = ({ reason }: { meetingId: string; reason: string }) => {
+      setMeetingId(null);
+      setRoomId(null);
+      setIsMeetingMode(false);
+      setIsHost(false);
+      setCallState('idle');
+      setScreen('home');
+      setActiveConfig(null);
+      const msg = reason === 'host-disconnected' ? 'The host disconnected.' : 'The host ended the meeting.';
+      showAlert('Meeting Ended', msg);
+    };
+
+    const onMeetingError = ({ message }: { message: string }) => {
+      showAlert('Meeting Error', message);
+    };
+
+    // Handle when offline participant comes online
+    const onMeetingParticipantOnline = ({ meetingId, userId, config }: { meetingId: string; userId: string; config: any[] }) => {
+      if (isMeetingModeRef.current && activeConfig) {
+        setActiveConfig(config);
+      }
+    };
+
+    // Handle when participant goes offline
+    const onMeetingParticipantOffline = ({ meetingId, userId, config }: { meetingId: string; userId: string; config: any[] }) => {
+      if (isMeetingModeRef.current && activeConfig) {
+        setActiveConfig(config);
+      }
+    };
+
+    socket.on('meeting-created', onMeetingCreated);
+    socket.on('incoming-meeting-invite', onIncomingMeetingInvite);
+    socket.on('meeting-joined-ack', onMeetingJoinedAck);
+    socket.on('meeting-participant-joined', onMeetingParticipantJoined);
+    socket.on('meeting-participant-declined', onMeetingParticipantDeclined);
+    socket.on('meeting-participant-left', onMeetingParticipantLeft);
+    socket.on('meeting-participant-online', onMeetingParticipantOnline);
+    socket.on('meeting-participant-offline', onMeetingParticipantOffline);
+    socket.on('meeting-ended', onMeetingEnded);
+    socket.on('meeting-error', onMeetingError);
+
+    socket.on('incoming-call', onIncomingCall);
+    socket.on('call-accepted', onCallAccepted);
+    socket.on('call-declined', onCallDeclined);
+    socket.on('call-ended', onCallEnded);
+    socket.on('peer-disconnected', onPeerDisconnected);
+    socket.on('call-error', onCallError);
+    socket.on('discoverable-users', onDiscoverableUsers);
+    socket.on('translation-error', onTranslationError);
+
+    // ── Voice Cloning status events ───────────────────────────────────────────
+    const onCloneStarted = () => setCloneStatus('buffering');
+    const onCloneReady   = (data: { voiceId: string }) => setCloneStatus('ready');
+    const onCloneFailed = (data?: { reason?: string; message?: string }) => {
+      setCloneStatus('using-original');
+      if (data?.reason === 'VOICE_LIMIT_REACHED') {
+        showAlert('Voice Cloning', data.message || 'Voice limit reached. Please try later.');
+      }
+    };
+
+    socket.on('clone-started', onCloneStarted);
+    socket.on('clone-ready',   onCloneReady);
+    socket.on('clone-failed',  onCloneFailed);
+
+    const onReconnect = () => {
+      if (roomIdRef.current) {
+        stopAudio();
+        setRoomId(null);
+        setMeetingId(null);
+        setIsMeetingMode(false);
+        setCallState('idle');
+        setScreen('home');
+        setActiveConfig(null);
+        setCloneStatus('idle');
+        showAlert('Call Ended', 'Connection was lost.');
+      }
+    };
+    socket.on('connect', onReconnect);
+
+    return () => {
+      socket.off('connect', onReconnect);
+      socket.off('meeting-created', onMeetingCreated);
+      socket.off('incoming-meeting-invite', onIncomingMeetingInvite);
+      socket.off('meeting-joined-ack', onMeetingJoinedAck);
+      socket.off('meeting-participant-joined', onMeetingParticipantJoined);
+      socket.off('meeting-participant-declined', onMeetingParticipantDeclined);
+      socket.off('meeting-participant-left', onMeetingParticipantLeft);
+      socket.off('meeting-participant-online', onMeetingParticipantOnline);
+      socket.off('meeting-participant-offline', onMeetingParticipantOffline);
+      socket.off('meeting-ended', onMeetingEnded);
+      socket.off('meeting-error', onMeetingError);
+      socket.off('incoming-call', onIncomingCall);
+      socket.off('call-accepted', onCallAccepted);
+      socket.off('call-declined', onCallDeclined);
+      socket.off('call-ended', onCallEnded);
+      socket.off('peer-disconnected', onPeerDisconnected);
+      socket.off('call-error', onCallError);
+      socket.off('discoverable-users', onDiscoverableUsers);
+      socket.off('translation-error', onTranslationError);
+      socket.off('clone-started', onCloneStarted);
+      socket.off('clone-ready',   onCloneReady);
+      socket.off('clone-failed',  onCloneFailed); // maps to 'using-original' state
+    };
+  // Only stable references remain — no volatile state values that would cause
+  // full listener teardown/re-registration on every render.
+  // speakLang, hearLang, incomingCall, callInviteSpeakLang, callInviteHearLang
+  // are all read via refs inside the handlers above.
+  }, [socket, user, stopRecording, stopListening, stopAudio]);
+
+  // ── Discoverable mode: emit start/stop based on screen ───────────────────
+  useEffect(() => {
+    if (!socket || !user) return;
+    if (screen === 'bt') {
+      socket.emit('start-discoverable', { userId: user.userId, name: user.name || user.userId });
+    } else {
+      socket.emit('stop-discoverable', { userId: user.userId });
+      setDiscoverableUsers([]);
+      btStopScan();
+    }
+  }, [screen, socket, user, btStopScan]);
+
+  // ── translated-text — always reads latest isSpeaker/hearLang via refs ────
+  useEffect(() => {
+    if (!socket) return;
+
+    const onTtsStart = () => {
+      setTtsPlaying(true);
+    };
+    socket.on('tts-start', onTtsStart);
+
+    const onTranslatedText = ({ text, audioBase64, captionOnly }: { text: string; audioBase64?: string; captionOnly?: boolean }) => {
+      console.log('[pipeline] translated-text received:', text, 'captionOnly:', captionOnly, 'isSpeaker:', isSpeakerRef.current);
+      if (!captionOnly) {
+        if (audioBase64) {
+          playAudio(
+            audioBase64,
+            () => setTtsPlaying(true),
+            () => { setTtsPlaying(false); socket.emit('tts-end'); },
+          );
+        } else if (Platform.OS === 'web') {
+          speakText(text, LOCALE_MAP[hearLangRef.current]);
+        }
+      }
+      setLiveTranscript(prev => ({ ...prev, 1: text }));
+    };
+
+    socket.on('translated-text', onTranslatedText);
+
+    // Show the raw Google STT transcript on your own tile (tile 0)
+    const onSpeechTranscript = ({ text, confidence }: { text: string; confidence?: number }) => {
+      setLiveTranscript(prev => ({ ...prev, 0: `🎤 ${text}` }));
+      if (confidence !== undefined) {
+        setConfidenceScores(prev => ({ ...prev, 0: confidence }));
+      }
+    };
+    socket.on('speech-transcript', onSpeechTranscript);
+
+    // ── Meeting translated text ────────────────────────────────────────────────
+    // const onMeetingTranslated = ({ text, audioBase64, fromUserId }: { text: string; audioBase64?: string; fromUserId: string; meetingId: string }) => {
+    //   const cfg = activeConfigRef.current;
+    //   if (!cfg) return;
+    //   const idx = cfg.findIndex((p: any) => p.userId === fromUserId);
+    //   if (idx === -1) return;
+    //   // if (isSpeakerRef.current) {
+    //     if (audioBase64) {
+    //       playAudio(
+    //         audioBase64,
+    //         () => setTtsPlaying(true),
+    //         () => { setTtsPlaying(false); socket.emit('tts-end'); },
+    //       );
+    //     } else if (Platform.OS === 'web') {
+    //       speakText(text, LOCALE_MAP[hearLangRef.current]);
+    //     }
+    //   // }
+    //   setLiveTranscript(prev => ({ ...prev, [idx]: text }));
+    // };
+
+    const onMeetingTranslated = ({
+      text,
+      audioBase64,
+      fromUserId,
+      meetingId,
+    }: {
+      text: string;
+      audioBase64?: string;
+      fromUserId: string;
+      meetingId: string;
+    }) => {
+      console.log(`[meeting-translated] Event received from ${fromUserId}: "${text}", audioLength=${audioBase64?.length ?? 0}`);
+      const cfg = activeConfigRef.current;
+      if (!cfg) return;
+      const idx = cfg.findIndex((p: any) => p.userId === fromUserId);
+      if (idx === -1) return;
+
+      // Queue playback safely (FIFO) to avoid overlap/glitches
+      if (audioBase64) {
+        console.log(`[meeting-translated] Queuing audio for playback (${audioBase64.length} bytes)`);
+        playAudio(
+          audioBase64,
+          () => setTtsPlaying(true),
+          () => {
+            setTtsPlaying(false);
+            socket.emit('tts-end', { fromUserId });
+          },
+        );
+      } else if (Platform.OS === 'web') {
+        console.log(`[meeting-translated] Playing text via speakText: "${text}"`);
+        speakText(text, LOCALE_MAP[hearLangRef.current]);
+      }
+
+      // Update transcript for UI
+      setLiveTranscript(prev => ({ ...prev, [idx]: text }));
+    };
+
+    socket.on('meeting-translated', onMeetingTranslated);
+
+    const onMeetingSpeechTranscript = ({ text, confidence }: { text: string; confidence?: number }) => {
+      setLiveTranscript(prev => ({ ...prev, 0: `🎤 ${text}` }));
+      if (confidence !== undefined) {
+        setConfidenceScores(prev => ({ ...prev, 0: confidence }));
+      }
+    };
+    socket.on('meeting-speech-transcript', onMeetingSpeechTranscript);
+
+    // ── Audio passthrough: play the sender's original voice directly ──────────
+    // setTtsPlaying(true) mutes the VAD mic while the peer's audio plays through
+    // the device speaker. Without this gate the receiver's own microphone picks
+    // up the speaker output and re-transmits it as their own audio-chunk,
+    // creating an echo / feedback loop.
+    const onAudioPassthrough = ({ audioBase64 }: { audioBase64: string }) => {
+      if (audioBase64) {
+        playAudio(
+          audioBase64,
+          () => setTtsPlaying(true),   // mute receiver's mic while peer voice plays
+          () => setTtsPlaying(false),  // restore mic after playback ends
+        );
+      }
+    };
+    socket.on('audio-passthrough', onAudioPassthrough);
+
+    return () => {
+      socket.off('tts-start', onTtsStart);
+      socket.off('translated-text', onTranslatedText);
+      socket.off('speech-transcript', onSpeechTranscript);
+      socket.off('meeting-translated', onMeetingTranslated);
+      socket.off('meeting-speech-transcript', onMeetingSpeechTranscript);
+      socket.off('audio-passthrough', onAudioPassthrough);
+    };
+  }, [socket, setTtsPlaying, playAudio]); // all three are stable useCallback refs
+
+  // ── Hybrid Audio Capture ────────────────────────────────────────────────────
+  // For languages supported by Web Speech API (EN, AR): use browser STT
+  // For unsupported languages (UR): use audio recorder → Google Cloud STT
+  useEffect(() => {
+    const isActive = screen.includes('active');
+    if (!isActive || isMuted) {
+      stopListening();
+      stopRecording();
+      setSttMode(null);
+      return;
+    }
+
+    const locale = LOCALE_MAP[speakLang];
+    console.log(`[pipeline] STT starting for ${speakLang} (${locale}) using recorder-only pipeline`);
+
+    // ── All platforms: use recorder + backend STT ───────────────────────────
+    startAudioRecorderMode();
+
+    function startAudioRecorderMode() {
+      setSttMode('audio-recorder');
+      console.log('[pipeline] Using audio recorder for', locale);
+      setLiveTranscript(prev => ({ ...prev, 0: '🎙️ Recording...' }));
+      
+      startRecording(
+        (audioBase64: string, mimeType: string) => {
+          const roomId = roomIdRef.current;
+          const meetingId = meetingIdRef.current;
+          console.log(
+            `[pipeline] Audio chunk ready — bytes:${audioBase64.length} mime:${mimeType}` +
+            ` roomId:${roomId} meetingMode:${isMeetingModeRef.current}`,
+          );
+          if (isMeetingModeRef.current) {
+            socket?.emit('meeting-audio-chunk', {
+              meetingId,
+              audioBase64,
+              mimeType,
+            });
+          } else {
+            if (!roomId) {
+              console.warn('[pipeline] Dropping audio chunk — roomId is null (call not yet established)');
+              return;
+            }
+            socket?.emit('audio-chunk', {
+              roomId,
+              audioBase64,
+              mimeType,
+            });
+          }
+        },
+        () =>
+          showAlert(
+            'Microphone Blocked',
+            Platform.OS === 'web'
+              ? 'Allow microphone access:\n1. Click the lock icon\n2. Set Microphone → Allow\n3. Refresh the page'
+              : 'Microphone access is blocked. Please:\n1. Open system app settings\n2. Find Voice Bridge\n3. Enable microphone permission\n4. Restart the app',
+          ),
+      );
+    }
+
+    return () => { 
+      stopListening(); 
+      stopRecording();
+      setSttMode(null);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, isMuted, socket, speakLang, startListening, stopListening, startRecording, stopRecording]);
+
+  const formatTime = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const Header = ({ title }: any) => (
+    <View style={styles.navHeader}>
+      <TouchableOpacity style={styles.backBtn} onPress={() => setScreen('home')}><ChevronLeft size={26} color={THEME.textMain} /></TouchableOpacity>
+      <Text style={styles.navTitle}>{title}</Text>
+      <View style={{ width: 40 }} />
+    </View>
+  );
+
+  if (!isInitialized) {
+    return (
+      <View style={[styles.darkPage, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={THEME.primary} />
+      </View>
+    );
+  }
+  if (!user && voiceSetupUserId) {
+    return (
+      <VoiceSetupScreen
+        userId={voiceSetupUserId}
+        onDone={() => setVoiceSetupUserId(null)}
+      />
+    );
+  }
+  if (!user) {
+    return (
+      <AuthScreen
+        onSuccess={() => setScreen('home')}
+        onNewUser={(uid) => setVoiceSetupUserId(uid)}
+      />
+    );
+  }
+
+  if (screen.includes('active')) {
+    const totalParticipants = activeConfig?.length || 0;
+    const tileWidth: any = totalParticipants >= 5 ? '31%' : '47%';
+
+    return (
+    <View style={styles.livePage}>
+      <StatusBar hidden />
+      <View style={styles.liveTop}>
+        <View style={styles.recordingIndicator}>
+          <View style={styles.recDotContainer}>
+            <Circle size={10} color={THEME.danger} fill={THEME.danger} />
+          </View>
+          <Text style={styles.recText}>REC {formatTime(recordingSeconds)}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          {isMeetingMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Users size={11} color={THEME.secondary} />
+              <Text style={[styles.liveLabel, { color: THEME.secondary }]}>
+                MEETING TABLE · {totalParticipants} USERS
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.liveLabel}>● LIVE BRIDGE</Text>
+          )}
+          {!isMuted && sttMode && (
+            <Text style={{ color: THEME.success, fontSize: 10, fontWeight: '800', marginTop: 2 }}>
+              {sttMode === 'browser' ? '🎤 LISTENING' : '🎙️ RECORDING'}
+            </Text>
+          )}
+          {cloningEnabled && (
+            <Text style={[
+              styles.cloningStatusLabel,
+              cloneStatus === 'buffering'      && { color: THEME.primary },
+              cloneStatus === 'cloning'        && { color: '#F59E0B' },
+              cloneStatus === 'ready'          && { color: THEME.success },
+              cloneStatus === 'using-original' && { color: THEME.textMuted },
+            ]}>
+              {cloneStatus === 'buffering'      ? '● SAMPLING VOICE…'
+                : cloneStatus === 'cloning'     ? '⟳ CLONING VOICE…'
+                : cloneStatus === 'ready'       ? '✓ AI CLONE ACTIVE'
+                : cloneStatus === 'using-original' ? 'Using original voice'
+                : 'AI CLONE ACTIVE'}
+            </Text>
+          )}
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.participantsGrid}>
+        {activeConfig?.map((p: any, i: number) => (
+          <View key={i} style={[styles.participantTile, { width: tileWidth }, i === 0 && styles.tileActive]}>
+            <View style={styles.tileTopRow}>
+              <View style={[
+                styles.avatarBox,
+                i === 0 && cloningEnabled && cloneStatus === 'ready'          && { backgroundColor: 'rgba(16, 185, 129, 0.2)' },
+                i === 0 && cloningEnabled && cloneStatus === 'buffering'       && { backgroundColor: 'rgba(6, 182, 212, 0.2)' },
+                i === 0 && cloningEnabled && cloneStatus === 'cloning'         && { backgroundColor: 'rgba(245, 158, 11, 0.2)' },
+                i === 0 && cloningEnabled && cloneStatus === 'using-original'  && { backgroundColor: 'rgba(148, 163, 184, 0.1)' },
+              ]}>
+                {i === 0 && cloningEnabled && cloneStatus === 'ready'
+                  ? <Mic size={24} color={THEME.success} />
+                  : <Text style={styles.avatarLetter}>{p.userId?.charAt(0) || 'U'}</Text>}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                {isMeetingMode && isHost && i === 0 && (
+                  <Crown size={14} color="#F59E0B" fill="#F59E0B" />
+                )}
+                {i === 0 && isMuted && <MicOff size={16} color={THEME.danger} />}
+              </View>
+            </View>
+
+            <View style={styles.infoBox}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Text style={styles.tileName}>{i === 0 ? "You" : p.userId}</Text>
+                {isMeetingMode && isHost && i === 0 && (
+                  <View style={styles.adminBadge}>
+                    <Text style={styles.adminBadgeText}>ADMIN</Text>
+                  </View>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={styles.tileLang}>{p.speak} ➜ {p.hear}</Text>
+                {isMeetingMode && p.isOnline === false && (
+                  <View style={styles.offlineBadge}>
+                    <Circle size={6} color="#EF4444" fill="#EF4444" />
+                    <Text style={styles.offlineBadgeText}>offline</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.transcriptContainer}>
+              <Text
+                style={[
+                  styles.transcriptText,
+                  (p.speak === 'UR' || p.speak === 'AR') && { textAlign: 'right', writingDirection: 'rtl' }
+                ]}
+                numberOfLines={2}
+              >
+                {liveTranscript[i] || "Waiting for audio..."}
+              </Text>
+              {confidenceScores[i] !== undefined && confidenceScores[i] < 70 && (
+                <View style={[
+                  styles.confidenceBadge,
+                  { backgroundColor: confidenceScores[i] >= 50
+                    ? 'rgba(255, 107, 53, 0.1)'
+                    : 'rgba(239, 68, 68, 0.1)'
+                  }
+                ]}>
+                  {confidenceScores[i] >= 50 ? (
+                    <AlertTriangle size={12} color="#FF6B35" />
+                  ) : (
+                    <AlertCircle size={12} color="#EF4444" />
+                  )}
+                  <Text style={[
+                    styles.confidenceText,
+                    { color: confidenceScores[i] >= 50 ? '#FF6B35' : '#EF4444' }
+                  ]}>
+                    {confidenceScores[i]}%
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.tileWave}><Activity size={16} color={i === 0 && cloningEnabled ? THEME.success : THEME.primary} /></View>
+          </View>
+        ))}
+      </ScrollView>
+
+      <View style={styles.bottomControls}>
+        <TouchableOpacity
+          style={[styles.roundControl, isMuted && { backgroundColor: 'rgba(244, 63, 94, 0.2)', borderColor: THEME.danger }]}
+          onPress={() => setIsMuted(prev => !prev)}
+        >
+          {isMuted ? <MicOff size={24} color={THEME.danger} /> : <Mic size={24} color={THEME.textMain} />}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={async () => {
+            // Save call history before ending
+            if (!isMeetingMode && user?._id && activeConfig && callStartTime) {
+              const duration = Math.floor((Date.now() - callStartTime) / 1000);
+              try {
+                const participants = activeConfig.map((p: any) => ({
+                  user: p.visitorId || user._id,
+                  languageSpoken: p.speak,
+                  languageHeard: p.hear,
+                }));
+                
+                await historyApi.create({
+                  initiatedBy: user._id,
+                  participants,
+                  callType: 'One to One Call',
+                  duration,
+                });
+                console.log('[History] Call saved (end button), duration:', duration);
+              } catch (err: any) {
+                console.error('[History] Save error:', err.message);
+              }
+            }
+            
+            if (isMeetingMode) {
+              if (meetingId) socket?.emit('leave-meeting', { meetingId });
+              setMeetingId(null);
+              setRoomId(null);
+              setIsMeetingMode(false);
+              setIsHost(false);
+            } else {
+              if (roomId) socket?.emit('end-call', { roomId });
+              setRoomId(null);
+            }
+            setCallStartTime(null);
+            setCallState('idle');
+            setScreen('home');
+            setActiveConfig(null);
+          }}
+          style={[styles.roundControl, styles.endCall]}>
+          {isMeetingMode
+            ? <LogOut size={26} color="#fff" />
+            : <PhoneCall size={26} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />}
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.roundControl, !isSpeaker && { opacity: 0.5 }]} 
+          onPress={() => setIsSpeaker(!isSpeaker)}
+        >
+          {isSpeaker ? <Volume2 size={24} color={THEME.primary} /> : <VolumeX size={24} color={THEME.textMuted} />}
+        </TouchableOpacity>
+      </View>
+      {Platform.OS === 'web' && (
+        <View style={{ paddingHorizontal: 24, paddingBottom: 10 }}>
+          <Text style={{ color: THEME.textMuted, fontSize: 11, textAlign: 'center' }}>
+            On web, audio follows your system output (Bluetooth headset / speakers selected in OS).
+          </Text>
+        </View>
+      )}
+    </View>
+  );}
+
+  return (
+    <View style={{ flex: 1, backgroundColor: THEME.background }}>
+      <StatusBar barStyle="light-content" />
+
+      {/* --- INCOMING CALL POPUP --- */}
+      {incomingCall && (
+        <View style={styles.incomingPopupOverlay}>
+          <LinearGradient colors={[THEME.surface, '#1E293B']} style={styles.incomingCard}>
+            <View style={styles.popupHeader}>
+              <View style={styles.pulseContainer}>
+                <View style={styles.avatarLarge}>
+                  <User size={32} color={THEME.primary} />
+                </View>
+              </View>
+              <Text style={styles.incomingLabel}>INCOMING BRIDGE CALL</Text>
+              <Text style={styles.callerName}>{incomingCall.callerName}</Text>
+              <Text style={styles.callerId}>ID: {incomingCall.callerId}</Text>
+            </View>
+
+            {/* Language picker — only speak lang needed (hear = speak) */}
+            <View style={{ width: '100%', marginBottom: 24 }}>
+              <Text style={[styles.labelDark, { marginBottom: 6 }]}>MY LANGUAGE</Text>
+              <View style={styles.langRow}>
+                {LANGUAGES.map(l => (
+                  <TouchableOpacity
+                    key={'cs' + l.code}
+                    onPress={() => setCallInviteSpeakLang(l.code)}
+                    style={[styles.langSelect, callInviteSpeakLang === l.code && styles.langSelectActive]}
+                  >
+                    <Text style={styles.flag}>{l.flag}</Text>
+                    <Text style={[styles.langName, callInviteSpeakLang === l.code && styles.langNameActive]}>{l.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.popupActions}>
+              <TouchableOpacity
+                style={[styles.actionCircle, { backgroundColor: THEME.danger }]}
+                onPress={() => {
+                  socket?.emit('decline-call', { callerId: incomingCall.callerId });
+                  setIncomingCall(null);
+                }}
+              >
+                <MicOff size={24} color="#fff" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionCircle, { backgroundColor: THEME.success }]}
+                onPress={() => {
+                  warmUpAudio();
+                  setSpeakLang(callInviteSpeakLang);
+
+                  socket?.emit('accept-call', {
+                    callerId: incomingCall.callerId,
+                    speakLang: callInviteSpeakLang,
+                    hearLang:  callInviteSpeakLang, // hear = speak
+                  });
+                }}
+              >
+                <PhoneCall size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      )}
+
+      {/* --- INCOMING MEETING INVITE POPUP --- */}
+      {incomingMeeting && !incomingCall && (
+        <View style={styles.incomingPopupOverlay}>
+          <LinearGradient colors={[THEME.surface, '#1E293B']} style={styles.incomingCard}>
+            <View style={styles.popupHeader}>
+              <View style={styles.pulseContainer}>
+                <View style={styles.avatarLarge}>
+                  <Users size={32} color={THEME.secondary} />
+                </View>
+              </View>
+              <Text style={[styles.incomingLabel, { color: THEME.secondary }]}>MEETING TABLE INVITE</Text>
+              <Text style={styles.callerName}>{incomingMeeting.hostName}</Text>
+              <Text style={styles.callerId}>Host ID: {incomingMeeting.hostUserId}</Text>
+              <Text style={[styles.callerId, { marginTop: 4 }]}>{incomingMeeting.totalParticipants} participants</Text>
+            </View>
+
+            {/* Language picker — only speak lang needed (hear = speak) */}
+            <View style={{ width: '100%', marginBottom: 24 }}>
+              <Text style={[styles.labelDark, { marginBottom: 6 }]}>MY LANGUAGE</Text>
+              <View style={styles.langRow}>
+                {LANGUAGES.map(l => (
+                  <TouchableOpacity
+                    key={'ms' + l.code}
+                    onPress={() => setMeetingInviteSpeakLang(l.code)}
+                    style={[styles.langSelect, meetingInviteSpeakLang === l.code && styles.langSelectActive]}
+                  >
+                    <Text style={styles.flag}>{l.flag}</Text>
+                    <Text style={[styles.langName, meetingInviteSpeakLang === l.code && styles.langNameActive]}>{l.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.popupActions}>
+              <TouchableOpacity
+                style={[styles.actionCircle, { backgroundColor: THEME.danger }]}
+                onPress={() => {
+                  socket?.emit('decline-meeting', {
+                    meetingId: incomingMeeting.meetingId,
+                    hostUserId: incomingMeeting.hostUserId,
+                  });
+                  setIncomingMeeting(null);
+                }}
+              >
+                <MicOff size={24} color="#fff" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionCircle, { backgroundColor: THEME.success }]}
+                onPress={() => {
+                  socket?.emit('join-meeting', {
+                    meetingId: incomingMeeting.meetingId,
+                    speakLang: meetingInviteSpeakLang,
+                    hearLang:  meetingInviteSpeakLang, // hear = speak
+                  });
+                }}
+              >
+                <Users size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      )}
+
+      {screen === 'home' && <HomeScreen user={user} setScreen={setScreen} router={router} />}
+
+      {screen.includes('setup') && (
+        <SafeAreaView style={styles.darkPage}>
+          <Header title="Configuration" />
+          <ScrollView style={{ padding: 20 }}>
+            <>
+                {screen === 'dc-setup' && <View style={{ marginBottom: 25 }}><Text style={styles.labelDark}>REMOTE USER ID</Text><TextInput placeholder="Target ID" style={styles.inputWhite} placeholderTextColor={THEME.textMuted} onChangeText={setParticipantIds} /></View>}
+                
+                {screen === 'mt-setup' && (() => {
+                  const need = participants - 1;
+                  const enteredIds = participantIds
+                    .split(',')
+                    .map((s: string) => s.trim())
+                    .filter((s: string) => s.length > 0);
+                  const uniqueValid = [...new Set(enteredIds)].filter((id: string) => id !== user?.userId);
+                  const filled = uniqueValid.length;
+                  const remaining = Math.max(0, need - filled);
+                  return (
+                    <View style={{ marginBottom: 25 }}>
+                      <Text style={styles.labelDark}>TOTAL PARTICIPANTS (INCLUDING YOU)</Text>
+                      <View style={styles.langRow}>
+                        {[2, 3, 4, 5].map(n => (
+                          <TouchableOpacity
+                            key={n}
+                            onPress={() => { setParticipants(n); setParticipantIds(''); }}
+                            style={[styles.langBtn, participants === n && styles.langBtnActive]}
+                          >
+                            <Text style={[styles.langBtnText, participants === n && styles.langBtnTextActive]}>{n}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15, marginBottom: 8 }}>
+                        <Text style={styles.labelDark}>
+                          INVITE {need} USER{need > 1 ? 'S' : ''}
+                        </Text>
+                        <Text style={{
+                          fontSize: 11, fontWeight: '700',
+                          color: remaining === 0 ? THEME.success : THEME.textMuted,
+                        }}>
+                          {remaining === 0
+                            ? `✓ ${filled}/${need} ready`
+                            : `${filled}/${need} — ${remaining} more needed`}
+                        </Text>
+                      </View>
+
+                      <TextInput
+                        value={participantIds}
+                        placeholder={
+                          need === 1 ? 'Enter user ID' :
+                          need === 2 ? 'user1, user2' :
+                          need === 3 ? 'user1, user2, user3' :
+                          'user1, user2, user3, user4'
+                        }
+                        style={styles.inputWhite}
+                        placeholderTextColor={THEME.textMuted}
+                        onChangeText={setParticipantIds}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      {need === 1 && (
+                        <Text style={{ fontSize: 11, color: THEME.textMuted, marginTop: 6 }}>
+                          Just enter ONE user ID — no comma needed
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })()}
+
+                <View style={styles.cloningCard}>
+                  <View style={styles.cloningIconBox}>
+                    <Cpu size={24} color={THEME.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cloningTitle}>Neural Voice Cloning</Text>
+                    <Text style={styles.cloningDesc}>
+                      Use your natural voice for translations (ElevenLabs).
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      const next = !cloningEnabled;
+                      setCloningEnabled(next);
+                      if (!user?.userId) return;
+                      try {
+                        await updatePreferences({
+                          userId: user.userId,
+                          voiceCloningEnabled: next,
+                        });
+                      } catch (err: any) {
+                        // Non-fatal: local UI state already toggled above.
+                        // A network or server error must never crash the app.
+                        console.warn(
+                          '[Preferences] Failed to update voice cloning flag:',
+                          err.message || err,
+                        );
+                      }
+                    }}
+                    style={[
+                      styles.toggleTrack,
+                      cloningEnabled && styles.toggleTrackActive,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.toggleThumb,
+                        cloningEnabled && styles.toggleThumbActive,
+                      ]}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.labelDark}>MY LANGUAGE</Text>
+                <View style={styles.langRow}>{LANGUAGES.map(l => <TouchableOpacity key={'s' + l.code} onPress={() => setSpeakLang(l.code)} style={[styles.langSelect, speakLang === l.code && styles.langSelectActive]}><Text style={styles.flag}>{l.flag}</Text><Text style={[styles.langName, speakLang === l.code && styles.langNameActive]}>{l.label}</Text></TouchableOpacity>)}</View>
+
+                <TouchableOpacity
+                  style={styles.launchBtn}
+                  onPress={() => {
+                    if (screen === 'dc-setup') {
+                      const targetId = participantIds.trim();
+                      if (!targetId) {
+                        showAlert('Error', 'Please enter the target user ID.');
+                        return;
+                      }
+                      if (targetId === user?.userId) {
+                        showAlert('Error', 'You cannot call yourself.');
+                        return;
+                      }
+                      warmUpAudio(); // pre-create AudioContext in user-gesture frame
+                      setCallState('calling');
+                      socket?.emit('call-user', {
+                        targetUserId: targetId,
+                        callerName: user?.userId,
+                        speakLang,
+                        hearLang: speakLang, // hear = speak
+                      });
+                      return;
+                    }
+
+                    if (screen === 'mt-setup') {
+                      const need = participants - 1;
+                      const rawIds = participantIds
+                        .split(',')
+                        .map((id: string) => id.trim())
+                        .filter((id: string) => id.length > 0);
+                      const uniqueIds = [...new Set(rawIds)];
+
+                      if (uniqueIds.includes(user?.userId ?? '')) {
+                        showAlert('Error', 'Apna khud ka ID enter mat karo.');
+                        return;
+                      }
+                      if (uniqueIds.length < need) {
+                        showAlert(
+                          'Error',
+                          `${need} user ID chahiye — abhi sirf ${uniqueIds.length} diye hain.`,
+                        );
+                        return;
+                      }
+
+                      warmUpAudio();
+                      const generatedMeetingId = `mt_${user?.userId}_${Date.now()}`;
+                      const invitees = uniqueIds.slice(0, need).map((uid: string) => ({ userId: uid }));
+                      socket?.emit('create-meeting', {
+                        meetingId: generatedMeetingId,
+                        hostSpeakLang: speakLang,
+                        hostHearLang:  speakLang, // hear = speak
+                        invitees,
+                      });
+                      return;
+                    }
+
+                    // Original behavior for as-setup
+                    warmUpAudio(); // pre-create AudioContext in user-gesture frame
+                    let config: any[] = [];
+                    config.push({ userId: user.userId || 'You', speak: speakLang, hear: hearLang });
+                    if (screen === 'as-setup') {
+                      config.push({ userId: 'user', speak: hearLang, hear: speakLang });
+                    }
+                    setActiveConfig(config);
+                    setScreen('active');
+                  }}
+                >
+                  <Zap size={20} color="#fff" /><Text style={styles.launchText}>Initialize Secure Bridge</Text>
+                </TouchableOpacity>
+            </>
+          </ScrollView>
+        </SafeAreaView>
+      )}
+
+      {screen === 'bt' && (
+        <SafeAreaView style={styles.darkPage}>
+          <Header title="Bluetooth" />
+
+          <View style={btStyles.radarWrap}>
+            {btScanning ? (
+              <BluetoothSearching size={36} color={THEME.primary} />
+            ) : (
+              <Bluetooth size={36} color={THEME.primary} />
+            )}
+          </View>
+
+          {/* Language selector for BT calls */}
+          <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+            <Text style={styles.labelDark}>MY LANGUAGE</Text>
+            <View style={styles.langRow}>
+              {LANGUAGES.map(l => (
+                <TouchableOpacity
+                  key={'bts' + l.code}
+                  onPress={() => setSpeakLang(l.code)}
+                  style={[styles.langSelect, speakLang === l.code && styles.langSelectActive]}
+                >
+                  <Text style={styles.flag}>{l.flag}</Text>
+                  <Text style={[styles.langName, speakLang === l.code && styles.langNameActive]}>{l.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {(() => {
+            const hasBleDevices = btDevices.length > 0;
+            const hasOnlineUsers = discoverableUsers.length > 0;
+            const hasAnyDevices = hasBleDevices || hasOnlineUsers;
+
+            if (!hasAnyDevices) {
+              return (
+                <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}>
+                  <Text style={btStyles.hint}>
+                    {Platform.OS === 'web'
+                      ? 'No Bluetooth scan results. On web, pair your headset or phone in Windows Bluetooth settings and select it as the audio output. Voice Bridge will automatically use the system output device.'
+                      : 'No devices found. Turn on Bluetooth and tap below to scan.'}
+                  </Text>
+                  {btScanError && <Text style={btStyles.scanError}>{btScanError}</Text>}
+                  {isBleSupported && Platform.OS !== 'web' && (
+                    <TouchableOpacity
+                      style={[btStyles.pairNowBtn, btScanning && btStyles.pairNowBtnDisabled]}
+                      onPress={btScanning ? undefined : btStartScan}
+                      disabled={btScanning}
+                    >
+                      {btScanning ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={btStyles.pairNowText}>Pair now</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {!isBleSupported && Platform.OS !== 'web' && (
+                    <Text style={btStyles.hint}>
+                      Use a development build (not Expo Go) to scan for devices.
+                    </Text>
+                  )}
+                </ScrollView>
+              );
+            }
+
+            return (
+              <ScrollView style={{ paddingHorizontal: 20, flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+                {btScanError && <Text style={btStyles.scanError}>{btScanError}</Text>}
+
+                {hasBleDevices && (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={btStyles.sectionLabel}>BLUETOOTH DEVICES</Text>
+                    {btDevices.map((device) => (
+                      <View key={device.id} style={btStyles.peerCard}>
+                        <View style={btStyles.peerAvatar}><Bluetooth size={20} color={THEME.primary} /></View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={btStyles.peerName}>{device.name || 'Unknown device'}</Text>
+                          <Text style={btStyles.peerId}>{device.id}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {!hasBleDevices && isBleSupported && (
+                  <TouchableOpacity
+                    style={[btStyles.pairNowBtn, btScanning && btStyles.pairNowBtnDisabled]}
+                    onPress={btScanning ? undefined : btStartScan}
+                    disabled={btScanning}
+                  >
+                    {btScanning ? <ActivityIndicator size="small" color="#fff" /> : <Text style={btStyles.pairNowText}>Pair now</Text>}
+                  </TouchableOpacity>
+                )}
+
+                {hasOnlineUsers && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={btStyles.sectionLabel}>ONLINE USERS</Text>
+                    {discoverableUsers.map((peer) => (
+                      <TouchableOpacity
+                        key={peer.userId}
+                        style={btStyles.peerCard}
+                        onPress={() => {
+                          setCallState('calling');
+                          socket?.emit('call-user', { targetUserId: peer.userId, callerName: user?.userId, speakLang, hearLang: speakLang });
+                          setScreen('home');
+                        }}
+                      >
+                        <View style={btStyles.peerAvatar}><Text style={btStyles.peerLetter}>{peer.userId.charAt(0).toUpperCase()}</Text></View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={btStyles.peerName}>{peer.name || peer.userId}</Text>
+                          <Text style={btStyles.peerId}>ID: {peer.userId}</Text>
+                        </View>
+                        <View style={btStyles.connectBtn}><Bluetooth size={14} color="#fff" /><Text style={btStyles.connectText}>Connect</Text></View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+            );
+          })()}
+        </SafeAreaView>
+      )}
+      {screen === 'settings' && <SafeAreaView style={styles.darkPage}><Header title="Profile" /><View style={{ padding: 20 }}><View style={styles.profileBox}><View style={styles.profileAvatar}><Text style={styles.profileLetter}>{user?.name?.charAt(0) ?? '?'}</Text></View><View><Text style={styles.profileName}>{user?.name}</Text><Text style={styles.profileId}>ID: {user?.userId}</Text></View></View><TouchableOpacity style={styles.logoutBtn} onPress={() => { logout(); setScreen('auth'); }}><LogOut size={18} color={THEME.danger} /><Text style={styles.logoutText}>Sign Out</Text></TouchableOpacity></View></SafeAreaView>}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  darkPage: { flex: 1, backgroundColor: THEME.background },
+  authWrap: { flex: 1, justifyContent: 'center', padding: 30 },
+  logoBox: { alignItems: 'center', marginBottom: 50 },
+  logoCircle: { width: 90, height: 90, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  brand: { color: THEME.textMain, fontSize: 32, fontWeight: '800', letterSpacing: -1 },
+  tagline: { color: THEME.textMuted, fontSize: 13, marginTop: 6 },
+  authCard: { gap: 18 },
+  field: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.surface, padding: 18, borderRadius: 16, borderWidth: 1, borderColor: THEME.border, gap: 12 },
+  fieldInput: { flex: 1, color: THEME.textMain, fontSize: 16 },
+  primaryBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 12 },
+  primaryBtnInner: { padding: 18, alignItems: 'center' },
+  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  switchBox: { marginTop: 24, alignItems: 'center' },
+  switchText: { color: THEME.textMuted, fontSize: 14 },
+  homePage: { flex: 1, backgroundColor: THEME.background },
+  headerBg: { height: 260, borderBottomLeftRadius: 40, borderBottomRightRadius: 40, position: 'absolute', top: 0, left: 0, right: 0 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 25, paddingTop: 70 },
+  headerLabel: { color: THEME.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  headerName: { color: THEME.textMain, fontSize: 28, fontWeight: '800', marginTop: 4 },
+  headerId: { color: THEME.primary, fontSize: 12, fontWeight: '600', marginTop: 2 },
+  btButton: { padding: 14, borderRadius: 18, backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border },
+  btButtonActive: { backgroundColor: 'rgba(6, 182, 212, 0.1)', borderColor: THEME.primary },
+  headerIcons: { flexDirection: 'row', paddingHorizontal: 25, marginTop: 22, gap: 12 },
+  headerIconBox: { flex: 1, backgroundColor: THEME.surface, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: THEME.border },
+  headerIconLabel: { color: THEME.textMain, fontWeight: '700', fontSize: 13 },
+  featureCard: { backgroundColor: THEME.surface, borderRadius: 24, padding: 25, marginBottom: 20, borderWidth: 1, borderColor: THEME.border },
+  featureIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: THEME.background, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: THEME.border },
+  statusTag: { position: 'absolute', top: 25, right: 25, backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statusText: { color: THEME.success, fontSize: 10, fontWeight: '800' },
+  featureTitle: { color: THEME.textMain, fontSize: 19, fontWeight: '800' },
+  featureDesc: { color: THEME.textMuted, fontSize: 13, marginTop: 6, lineHeight: 18 },
+  gridRow: { flexDirection: 'row', gap: 16 },
+  gridCard: { flex: 1, backgroundColor: THEME.surface, padding: 20, borderRadius: 24, borderWidth: 1, borderColor: THEME.border },
+  gridIcon: { width: 48, height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  gridTitle: { color: THEME.textMain, fontSize: 16, fontWeight: '800' },
+  gridDesc: { color: THEME.textMuted, fontSize: 12, marginTop: 4 },
+  navHeader: { padding: 20, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  backBtn: { padding: 10, backgroundColor: THEME.surface, borderRadius: 14, borderWidth: 1, borderColor: THEME.border },
+  navTitle: { color: THEME.textMain, fontSize: 18, fontWeight: '800' },
+  centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
+  centerTitle: { color: THEME.textMain, fontSize: 22, fontWeight: '800', marginVertical: 20 },
+  scanOption: { width: '100%', padding: 18, borderRadius: 16, borderWidth: 1, borderColor: THEME.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: THEME.surface },
+  scanText: { color: THEME.textMain, fontWeight: '700' },
+  labelDark: { color: THEME.textMuted, fontSize: 10, fontWeight: '800', marginBottom: 8, letterSpacing: 0.5 },
+  inputWhite: { padding: 18, borderRadius: 16, backgroundColor: THEME.surface, color: THEME.textMain, borderWidth: 1, borderColor: THEME.border },
+  langRow: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 10 },
+  langBtn: { flex: 1, padding: 14, borderRadius: 14, backgroundColor: THEME.surface, marginHorizontal: 4, borderWidth: 1, borderColor: THEME.border },
+  langBtnActive: { backgroundColor: THEME.primary, borderColor: THEME.primary },
+  langBtnText: { color: THEME.textMuted, textAlign: 'center', fontWeight: '700' },
+  langBtnTextActive: { color: '#fff' },
+  langSelect: { flex: 1, backgroundColor: THEME.surface, marginHorizontal: 4, padding: 16, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: THEME.border },
+  langSelectActive: { backgroundColor: 'rgba(6, 182, 212, 0.1)', borderColor: THEME.primary },
+  flag: { fontSize: 22 },
+  langName: { fontSize: 11, color: THEME.textMuted, marginTop: 6, fontWeight: '700' },
+  langNameActive: { color: THEME.primary },
+  launchBtn: { marginTop: 40, backgroundColor: THEME.primary, borderRadius: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 18 },
+  launchText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  errorBox: { backgroundColor: 'rgba(244, 63, 94, 0.05)', padding: 30, borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(244, 63, 94, 0.2)' },
+  errorTitle: { color: THEME.danger, fontWeight: '800', marginTop: 10 },
+  errorBtn: { backgroundColor: THEME.danger, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginTop: 12 },
+  errorBtnText: { color: '#fff', fontWeight: '700' },
+  livePage: { flex: 1, backgroundColor: THEME.background },
+  liveTop: { padding: 25, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between' },
+  timeBox: { backgroundColor: THEME.surface, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: THEME.border },
+  timeText: { color: THEME.textMain, fontWeight: '800' },
+  liveLabel: { color: THEME.danger, fontWeight: '900', fontSize: 12 },
+  cloningStatusLabel: { color: THEME.success, fontSize: 10, fontWeight: '900', marginTop: 4 },
+  adminBadge: { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2, borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.4)' },
+  adminBadgeText: { fontSize: 8, fontWeight: '800', color: '#F59E0B', letterSpacing: 0.5 },
+  offlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' },
+  offlineBadgeText: { fontSize: 9, fontWeight: '700', color: '#EF4444' },
+  participantsGrid: { padding: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 15 },
+  participantTile: { width: '47%', aspectRatio: 1, backgroundColor: THEME.surface, borderRadius: 24, padding: 16, justifyContent: 'space-between', borderWidth: 1, borderColor: THEME.border },
+  tileActive: { borderColor: THEME.primary, borderWidth: 2 },
+  avatarBox: { width: 52, height: 52, borderRadius: 26, backgroundColor: THEME.background, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: THEME.border },
+  avatarLetter: { color: THEME.textMain, fontSize: 20, fontWeight: '800' },
+  tileName: { color: THEME.textMain, fontWeight: '800', fontSize: 16, marginTop: 6 },
+  tileLang: { color: THEME.textMuted, fontSize: 11, marginTop: 2, fontWeight: '600' },
+  tileWave: { position: 'absolute', right: 16, top: 16 },
+  bottomControls: { backgroundColor: THEME.surface, height: 140, borderTopLeftRadius: 40, borderTopRightRadius: 40, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderWidth: 1, borderColor: THEME.border },
+  roundControl: { padding: 18, backgroundColor: THEME.background, borderRadius: 40, borderWidth: 1, borderColor: THEME.border },
+  endCall: { backgroundColor: THEME.danger, borderColor: THEME.danger },
+  playBox: { padding: 12, backgroundColor: THEME.background, borderRadius: 14, borderWidth: 1, borderColor: THEME.border },
+  profileBox: { backgroundColor: THEME.surface, padding: 20, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 16, borderWidth: 1, borderColor: THEME.border },
+  profileAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: THEME.background, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: THEME.border },
+  profileLetter: { color: THEME.primary, fontSize: 22, fontWeight: '800' },
+  profileName: { color: THEME.textMain, fontSize: 18, fontWeight: '800' },
+  profileId: { color: THEME.textMuted, fontSize: 12 },
+  logoutBtn: { marginTop: 20, backgroundColor: 'rgba(244, 63, 94, 0.1)', padding: 15, borderRadius: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
+  logoutText: { color: THEME.danger, fontWeight: '800' },
+  cloningCard: { backgroundColor: THEME.surface, padding: 20, borderRadius: 24, flexDirection: 'row', alignItems: 'center', marginBottom: 25, borderWidth: 1, borderColor: THEME.border },
+  cloningIconBox: { width: 48, height: 48, backgroundColor: THEME.background, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginRight: 16, borderWidth: 1, borderColor: THEME.border },
+  cloningTitle: { color: THEME.textMain, fontWeight: '800', fontSize: 16 },
+  cloningDesc: { color: THEME.textMuted, fontSize: 12, marginTop: 2 },
+  toggleTrack: { width: 46, height: 24, borderRadius: 12, backgroundColor: THEME.background, padding: 3, borderWidth: 1, borderColor: THEME.border },
+  toggleTrackActive: { backgroundColor: THEME.primary, borderColor: THEME.primary },
+  toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: THEME.textMuted },
+  toggleThumbActive: { alignSelf: 'flex-end', backgroundColor: '#fff' },
+  recordingIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(0,0,0,0.3)', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20 },
+  recText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  transcriptContainer: { backgroundColor: 'rgba(0,0,0,0.2)', padding: 8, borderRadius: 10, marginTop: 8, minHeight: 45, justifyContent: 'center' },
+  transcriptText: { color: THEME.primary, fontSize: 10, fontStyle: 'italic' },
+  confidenceBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, alignSelf: 'flex-start' },
+  confidenceText: { fontSize: 9, fontWeight: '700' },
+  recDotContainer: { position: 'relative' },
+  tileTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  infoBox: { marginTop: 4 },
+  // --- INCOMING CALL STYLES ---
+  incomingPopupOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15, 18, 25, 0.95)', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: 30 },
+  incomingCard: { width: '100%', borderRadius: 40, padding: 30, alignItems: 'center', borderWidth: 1, borderColor: THEME.border, elevation: 20 },
+  popupHeader: { alignItems: 'center', marginBottom: 40 },
+  incomingLabel: { color: THEME.primary, fontSize: 12, fontWeight: '900', letterSpacing: 2, marginBottom: 10 },
+  callerName: { color: THEME.textMain, fontSize: 28, fontWeight: '800' },
+  callerId: { color: THEME.textMuted, fontSize: 14, marginTop: 4 },
+  avatarLarge: { width: 80, height: 80, borderRadius: 40, backgroundColor: THEME.background, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: THEME.primary },
+  popupActions: { flexDirection: 'row', gap: 40 },
+  actionCircle: { width: 65, height: 65, borderRadius: 33, justifyContent: 'center', alignItems: 'center', elevation: 10 },
+  pulseContainer: { marginBottom: 20, padding: 10, borderRadius: 100, backgroundColor: 'rgba(6, 182, 212, 0.1)' }
+});
+
+const btStyles = StyleSheet.create({
+  statusBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 20, marginTop: 12, padding: 14, backgroundColor: THEME.surface, borderRadius: 16, borderWidth: 1, borderColor: THEME.border },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  dotOn: { backgroundColor: THEME.success },
+  dotOff: { backgroundColor: THEME.danger },
+  statusText: { color: THEME.textMain, fontSize: 13, fontWeight: '600', flex: 1 },
+  radarWrap: { alignItems: 'center', justifyContent: 'center', padding: 30 },
+  hint: { color: THEME.textMuted, textAlign: 'center', marginTop: 10, fontSize: 14, paddingHorizontal: 40, lineHeight: 22 },
+  hintSmall: { color: THEME.textMuted, fontSize: 12, marginBottom: 12, lineHeight: 18 },
+  sectionLabel: { color: THEME.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 12 },
+  pairNowBtn: { alignSelf: 'center', backgroundColor: THEME.primary, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 16, minWidth: 140, alignItems: 'center' },
+  pairNowBtnDisabled: { opacity: 0.7 },
+  pairNowText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  scanError: { color: THEME.danger, textAlign: 'center', marginTop: 8, fontSize: 12, paddingHorizontal: 20 },
+  peerCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: THEME.surface, padding: 16, borderRadius: 18, marginBottom: 12, borderWidth: 1, borderColor: THEME.border },
+  peerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(6, 182, 212, 0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: THEME.primary },
+  peerLetter: { color: THEME.primary, fontSize: 18, fontWeight: '800' },
+  peerName: { color: THEME.textMain, fontWeight: '700', fontSize: 15 },
+  peerId: { color: THEME.textMuted, fontSize: 11, marginTop: 2 },
+  connectBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: THEME.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
+  connectText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  pairedBadge: { backgroundColor: THEME.success, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
+  pairedBadgeText: { color: '#fff', fontWeight: '700', fontSize: 11 },
+});

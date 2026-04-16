@@ -17,7 +17,7 @@ type AuthContextType = {
   isLoading: boolean;
   isInitialized: boolean;
   signIn: (userId: string, password: string) => Promise<{ success: boolean; message: string }>;
-  signUp: (userId: string, password: string) => Promise<{ success: boolean; message: string }>;
+  signUp: (userId: string, email: string, password: string) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
 };
 
@@ -57,10 +57,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  const signUp = useReact.useCallback(async (userId: string, password: string) => {
+  const signUp = useReact.useCallback(async (userId: string, email: string, password: string) => {
     setIsLoading(true);
     try {
-      const res = await signUpApi({ userId, password });
+      const res = await signUpApi({ userId, email, password });
       if (res.status) {
         return { success: true, message: res.message };
       }
