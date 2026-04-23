@@ -3,6 +3,8 @@ import { Platform } from 'react-native';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import type { AudioPlayer } from 'expo-audio';
 
+const AUDIO_SESSION_MODULE = 'react-native-audio-session';
+
 type PlayCallback = () => void | Promise<void>;
 type QueueItem = {
   audioBase64: string;
@@ -121,6 +123,19 @@ export function useAudioPlayer() {
             allowsRecording: true,
             interruptionMode: 'doNotMix',
           });
+          // Enable Bluetooth A2DP output on iOS so TTS plays through AirPods
+          // when the user has connected a BT device in the Bluetooth screen.
+          if (Platform.OS === 'ios') {
+            try {
+              const AudioSession = require(AUDIO_SESSION_MODULE).default;
+              await AudioSession.setCategory('PlayAndRecord', [
+                'AllowBluetooth',
+                'AllowBluetoothA2DP',
+                'DefaultToSpeaker',
+              ]);
+              await AudioSession.setActive(true);
+            } catch { /* library not available in Expo Go — safe to ignore */ }
+          }
           audioModeReadyRef.current = true;
         }
 

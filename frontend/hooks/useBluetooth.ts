@@ -1,132 +1,125 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Platform, PermissionsAndroid } from 'react-native';
+
+// Metro skips static resolution when the module name is in a variable.
+// This lets the app bundle in Expo Go (where native modules are absent)
+// and still work correctly in a real EAS / dev-client build.
+const BT_CLASSIC_MODULE = 'react-native-bluetooth-classic';
+const AUDIO_SESSION_MODULE = 'react-native-audio-session';
 
 export type BluetoothDevice = {
   id: string;
-  name: string | null;
-  rssi: number | null;
+  name: string;
 };
+
+export type BtConnectState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 const isNative = Platform.OS === 'ios' || Platform.OS === 'android';
 
-async function requestBlePermissions(): Promise<boolean> {
+async function requestAndroidPermissions(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   try {
     const apiLevel = (Platform as any).Version ?? 0;
     if (apiLevel >= 31) {
       const result = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
       ]);
-      const granted =
-        result['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED &&
-        result['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
-        result['android.permission.ACCESS_FINE_LOCATION'] === PermissionsAndroid.RESULTS.GRANTED;
-      return granted;
+      return result['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED;
     }
-    const result = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-    );
-    return result === PermissionsAndroid.RESULTS.GRANTED;
+    // API < 31: no runtime BT permission needed for bonded devices
+    return true;
   } catch {
     return false;
   }
 }
 
 export function useBluetooth() {
-  const [devices, setDevices] = useState<BluetoothDevice[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [bleAvailable, setBleAvailable] = useState(false);
-  const devicesMapRef = useRef<Map<string, BluetoothDevice>>(new Map());
-  const managerRef = useRef<typeof import('react-native-ble-plx').BleManager | null>(null);
+  const [pairedDevices, setPairedDevices]       = useState<BluetoothDevice[]>([]);
+  const [connectedDeviceId, setConnectedDeviceId] = useState<string | null>(null);
+  const [connectState, setConnectState]         = useState<BtConnectState>('disconnected');
+  const [error, setError]                       = useState<string | null>(null);
+  const [isLoading, setIsLoading]               = useState(false);
 
-  useEffect(() => {
-    if (!isNative) return;
-    try {
-      const { BleManager } = require('react-native-ble-plx');
-      const manager = new BleManager();
-      managerRef.current = manager;
-      setBleAvailable(true);
-      return () => {
-        try {
-          manager.destroy();
-        } catch (_) {}
-        managerRef.current = null;
-        setBleAvailable(false);
-      };
-    } catch (e) {
-      // Native BLE module not available (e.g. Expo Go, web, or simulator)
-      managerRef.current = null;
-      setBleAvailable(false);
-    }
-  }, []);
-
-  const startScan = useCallback(async () => {
+  // ── Fetch already-paired devices from the OS ──────────────────────────────
+  const fetchPairedDevices = useCallback(async () => {
     if (!isNative) {
-      setScanError(
-        'Bluetooth scanning is only available on the native app. On web, pair your device in system Bluetooth settings and audio will follow that output.',
-      );
+      setError('Bluetooth is only available on iOS and Android (dev build required).');
       return;
     }
-    if (!bleAvailable) {
-      setScanError('Bluetooth scanning is only available on iOS and Android (development build).');
-      return;
-    }
-    const manager = managerRef.current;
-    if (!manager) return;
-
-    const hasPermission = await requestBlePermissions();
+    const hasPermission = await requestAndroidPermissions();
     if (!hasPermission) {
-      setScanError('Bluetooth and Location permissions are required to scan for devices.');
+      setError('Bluetooth permission denied. Please allow it in device settings.');
       return;
     }
-
-    setScanError(null);
-    devicesMapRef.current.clear();
-    setDevices([]);
-    setIsScanning(true);
-
-    manager.startDeviceScan(
-      null,
-      { allowDuplicates: false },
-      (error, device) => {
-        if (error) {
-          setScanError(error.message);
-          manager.stopDeviceScan();
-          setIsScanning(false);
-          return;
-        }
-        if (device) {
-          const id = device.id;
-          const name = device.name ?? null;
-          const rssi = device.rssi ?? null;
-          const next = new Map(devicesMapRef.current);
-          next.set(id, { id, name, rssi });
-          devicesMapRef.current = next;
-          setDevices(Array.from(next.values()));
-        }
-      }
-    );
-  }, [bleAvailable]);
-
-  const stopScan = useCallback(() => {
-    if (!isNative) return;
-    const manager = managerRef.current;
-    if (manager) {
-      manager.stopDeviceScan();
+    setIsLoading(true);
+    setError(null);
+    try {
+      const RNBluetoothClassic = require(BT_CLASSIC_MODULE).default;
+      const bonded: any[] = await RNBluetoothClassic.getBondedDevices();
+      const devices: BluetoothDevice[] = bonded
+        .filter((d: any) => !!d.name)
+        .map((d: any) => ({ id: d.address, name: d.name as string }));
+      setPairedDevices(devices);
+    } catch {
+      setError('Could not load paired devices. Make sure you are using a dev/EAS build.');
+    } finally {
+      setIsLoading(false);
     }
-    setIsScanning(false);
   }, []);
+
+  // ── Connect: route all audio output to the selected Bluetooth device ──────
+  const connectDevice = useCallback(async (deviceId: string) => {
+    if (!isNative) return;
+    setConnectState('connecting');
+    setError(null);
+    try {
+      if (Platform.OS === 'ios') {
+        // iOS: configure AVAudioSession to allow Bluetooth A2DP output.
+        // The OS then automatically routes audio to the connected AirPods/headset.
+        const AudioSession = require(AUDIO_SESSION_MODULE).default;
+        await AudioSession.setCategory('PlayAndRecord', [
+          'AllowBluetooth',
+          'AllowBluetoothA2DP',
+          'DefaultToSpeaker',
+        ]);
+        await AudioSession.setActive(true);
+      } else {
+        // Android: open a Classic BT connection; the OS routes audio automatically.
+        const RNBluetoothClassic = require(BT_CLASSIC_MODULE).default;
+        await RNBluetoothClassic.connectToDevice(deviceId);
+      }
+      setConnectedDeviceId(deviceId);
+      setConnectState('connected');
+    } catch (e: any) {
+      setError('Could not connect: ' + (e?.message ?? 'unknown error'));
+      setConnectState('error');
+    }
+  }, []);
+
+  // ── Disconnect: restore default audio routing ──────────────────────────────
+  const disconnectDevice = useCallback(async () => {
+    try {
+      if (Platform.OS === 'ios') {
+        const AudioSession = require(AUDIO_SESSION_MODULE).default;
+        await AudioSession.setCategory('SoloAmbient', []);
+      } else if (connectedDeviceId) {
+        const RNBluetoothClassic = require(BT_CLASSIC_MODULE).default;
+        try { await RNBluetoothClassic.disconnectFromDevice(connectedDeviceId); } catch {}
+      }
+    } catch {}
+    setConnectedDeviceId(null);
+    setConnectState('disconnected');
+  }, [connectedDeviceId]);
 
   return {
-    btState: 'on' as const,
-    devices,
-    isScanning,
-    scanError,
-    startScan,
-    stopScan,
-    isBleSupported: isNative && bleAvailable,
+    pairedDevices,
+    connectedDeviceId,
+    connectState,
+    error,
+    isLoading,
+    fetchPairedDevices,
+    connectDevice,
+    disconnectDevice,
   };
 }

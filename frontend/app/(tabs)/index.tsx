@@ -908,7 +908,16 @@ export default function App() {
   const { socket } = useSocket(user?.userId ?? null, user?._id ?? null);
   const { startListening, stopListening } = useSpeechRecognition();
   const { startRecording, stopRecording, setTtsPlaying, warmUpAudio } = useVADAudioRecorder();
-  const { devices: btDevices, isScanning: btScanning, scanError: btScanError, startScan: btStartScan, stopScan: btStopScan, isBleSupported } = useBluetooth();
+  const {
+    pairedDevices: btDevices,
+    connectedDeviceId: btConnectedId,
+    connectState: btConnectState,
+    error: btError,
+    isLoading: btLoading,
+    fetchPairedDevices: btFetchDevices,
+    connectDevice: btConnectDevice,
+    disconnectDevice: btDisconnectDevice,
+  } = useBluetooth();
 
   const [sttMode, setSttMode] = useState<'browser' | 'audio-recorder' | null>(null);
 
@@ -1166,12 +1175,12 @@ export default function App() {
     if (!socket || !user) return;
     if (screen === 'bt') {
       socket.emit('start-discoverable', { userId: user.userId, name: user.name || user.userId });
+      btFetchDevices();
     } else {
       socket.emit('stop-discoverable', { userId: user.userId });
       setDiscoverableUsers([]);
-      btStopScan();
     }
-  }, [screen, socket, user, btStopScan]);
+  }, [screen, socket, user, btFetchDevices]);
 
   useEffect(() => {
     if (!socket) return;
@@ -1794,60 +1803,108 @@ if (screen === 'active') {
   <SafeAreaView style={styles.darkPage}>
     <Header title="Bluetooth Devices" />
 
+    {/* ── Connected device banner ── */}
+    {btConnectState === 'connected' && btConnectedId && (
+      <View style={btStyles.connectedBanner}>
+        <Bluetooth size={16} color="#fff" />
+        <Text style={btStyles.connectedBannerText} numberOfLines={1}>
+          {btDevices.find(d => d.id === btConnectedId)?.name ?? btConnectedId}
+        </Text>
+        <Text style={btStyles.connectedBadge}>CONNECTED</Text>
+      </View>
+    )}
+
+    {/* ── Top icon area ── */}
     <View style={btStyles.radarWrap}>
       <View style={btStyles.rippleContainer}>
-        {btScanning ? (
-          <BluetoothSearching size={50} color={THEME.primary} />
-        ) : (
-          <Bluetooth size={50} color={THEME.primary} />
-        )}
+        {btLoading
+          ? <ActivityIndicator size="large" color={THEME.primary} />
+          : btConnectState === 'connecting'
+            ? <BluetoothSearching size={50} color={THEME.primary} />
+            : <Bluetooth size={50} color={btConnectState === 'connected' ? THEME.success : THEME.primary} />
+        }
       </View>
       <Text style={btStyles.statusText}>
-        {btScanning ? "SCANNING FOR DEVICES..." : "BLUETOOTH READY"}
+        {btLoading
+          ? 'LOADING PAIRED DEVICES...'
+          : btConnectState === 'connecting'
+            ? 'CONNECTING...'
+            : btConnectState === 'connected'
+              ? 'AUDIO ROUTED TO DEVICE'
+              : 'PAIRED DEVICES'}
       </Text>
     </View>
 
     <ScrollView style={{ flex: 1, paddingHorizontal: 20 }} contentContainerStyle={{ paddingBottom: 40 }}>
-      
-      <TouchableOpacity 
-        style={[btStyles.pairNowBtn, btScanning && { opacity: 0.7 }]} 
-        onPress={() => btScanning ? btStopScan() : btStartScan()}
+
+      {/* ── Error message ── */}
+      {btError && (
+        <View style={btStyles.errorBox}>
+          <Text style={btStyles.errorText}>{btError}</Text>
+        </View>
+      )}
+
+      {/* ── Refresh button ── */}
+      <TouchableOpacity
+        style={[btStyles.pairNowBtn, btLoading && { opacity: 0.6 }]}
+        onPress={btFetchDevices}
+        disabled={btLoading}
       >
         <Text style={btStyles.pairNowText}>
-          {btScanning ? "Stop Scanning" : "Search for Devices"}
+          {btLoading ? 'Loading...' : 'Refresh Paired Devices'}
         </Text>
       </TouchableOpacity>
 
-      <Text style={btStyles.sectionLabel}>AVAILABLE HARDWARE</Text>
-      
-      {[
-        { id: 'BT:99:A1:02', name: 'Sony WH-1000XM4', type: 'Headset' },
-        { id: 'BT:45:B2:88', name: 'Galaxy Buds Pro', type: 'Earbuds' },
-        { id: 'BT:12:C3:44', name: 'Bose QuietComfort', type: 'Headphones' },
-        { id: 'BT:88:F1:12', name: 'JBL Flip 6', type: 'Speaker' }
-      ].map((device) => (
-        <View key={device.id} style={btStyles.peerCard}>
-          <View style={btStyles.peerAvatar}>
-            <Headphones size={22} color={THEME.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={btStyles.peerName}>{device.name}</Text>
-            <Text style={btStyles.peerId}>{device.id} • {device.type}</Text>
-          </View>
-          <TouchableOpacity 
-            style={btStyles.connectBtn}
-            onPress={() => showAlert("Bluetooth", `Connecting to ${device.name}...`)}
-          >
-            <Text style={btStyles.connectText}>Connect</Text>
-          </TouchableOpacity>
-        </View>
-      ))}
+      <Text style={btStyles.sectionLabel}>PAIRED DEVICES</Text>
 
-      {!btScanning && (
+      {/* ── Empty state ── */}
+      {!btLoading && btDevices.length === 0 && (
         <Text style={btStyles.hint}>
-          Make sure your device is in pairing mode to show up in the list.
+          No paired devices found.{'\n'}Pair your AirPods in phone Settings → Bluetooth first, then tap Refresh.
         </Text>
       )}
+
+      {/* ── Device list ── */}
+      {btDevices.map((device) => {
+        const isConnected = btConnectedId === device.id;
+        const isConnecting = btConnectState === 'connecting';
+        return (
+          <View key={device.id} style={[btStyles.peerCard, isConnected && btStyles.peerCardActive]}>
+            <View style={[btStyles.peerAvatar, isConnected && { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+              <Headphones size={22} color={isConnected ? THEME.success : THEME.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[btStyles.peerName, isConnected && { color: THEME.success }]}>
+                {device.name}
+              </Text>
+              <Text style={btStyles.peerId}>{device.id}</Text>
+            </View>
+            {isConnected ? (
+              <TouchableOpacity
+                style={[btStyles.connectBtn, { backgroundColor: 'rgba(194, 91, 78, 0.15)', borderColor: THEME.danger }]}
+                onPress={btDisconnectDevice}
+              >
+                <Text style={[btStyles.connectText, { color: THEME.danger }]}>Disconnect</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[btStyles.connectBtn, isConnecting && { opacity: 0.5 }]}
+                onPress={() => btConnectDevice(device.id)}
+                disabled={isConnecting}
+              >
+                {isConnecting
+                  ? <ActivityIndicator size="small" color={THEME.primary} />
+                  : <Text style={btStyles.connectText}>Connect</Text>
+                }
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
+
+      <Text style={btStyles.hint}>
+        AirPods must be paired in Settings → Bluetooth first. Tap Connect to route all call audio through them.
+      </Text>
 
     </ScrollView>
   </SafeAreaView>
@@ -2276,8 +2333,25 @@ const btStyles = StyleSheet.create({
   peerLetter: { color: THEME.primary, fontSize: 18, fontWeight: '800' },
   peerName: { color: THEME.textMain, fontWeight: '700', fontSize: 15 },
   peerId: { color: THEME.textMuted, fontSize: 11, marginTop: 2 },
-  connectBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: THEME.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
   connectText: { color: '#fff', fontWeight: '800', fontSize: 12 },
   pairedBadge: { backgroundColor: THEME.success, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
   pairedBadgeText: { color: '#fff', fontWeight: '700', fontSize: 11 },
+  peerCardActive: { borderColor: THEME.success, borderWidth: 1.5, backgroundColor: 'rgba(16, 185, 129, 0.05)' },
+  connectedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 20,
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.success,
+  },
+  connectedBannerText: { flex: 1, color: THEME.success, fontWeight: '700', fontSize: 14 },
+  connectedBadge: { color: THEME.success, fontWeight: '900', fontSize: 10, letterSpacing: 1.2 },
+  connectBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: THEME.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: 'transparent' },
+  errorBox: { backgroundColor: 'rgba(194, 91, 78, 0.1)', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: THEME.danger },
+  errorText: { color: THEME.danger, fontSize: 13, lineHeight: 20 },
 });
